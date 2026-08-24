@@ -1,0 +1,473 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================================================
+// USERS & AUTHENTICATION
+// ============================================================================
+
+model User {
+  id            String     @id @default(cuid())
+  email         String     @unique
+  emailVerified DateTime?
+  password      String
+  image         String?
+  name          String?
+  role          UserRole   @default(USER)
+  isActive      Boolean    @default(true)
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+
+  // Relations
+  profile       Profile?
+  products      Product[]
+  conversations Conversation[] @relation("userConversations")
+  messages      Message[]
+  orders        Order[] @relation("buyer")
+  sellerOrders  Order[] @relation("seller")
+  cart          CartItem[]
+  wishlist      Wishlist[]
+  reviews       Review[] @relation("reviewer")
+  sellerReviews Review[] @relation("seller")
+  notifications Notification[]
+  verificationRequest SellerVerification?
+  reports       Report[]
+  adminLogs     AdminLog[]
+
+  @@index([email])
+  @@index([createdAt])
+}
+
+enum UserRole {
+  USER
+  SELLER
+  ADMIN
+}
+
+// ============================================================================
+// USER PROFILES
+// ============================================================================
+
+model Profile {
+  id              String   @id @default(cuid())
+  userId          String   @unique
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  profileImage    String?
+  fullName        String?
+  phone           String?
+  school          String?
+  region          String?
+  bio             String?  @db.Text
+  averageRating   Float    @default(0)
+  totalReviews    Int      @default(0)
+  isVerifiedSeller Boolean @default(false)
+  joinDate        DateTime @default(now())
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([userId])
+  @@index([isVerifiedSeller])
+}
+
+// ============================================================================
+// PRODUCTS & CATEGORIES
+// ============================================================================
+
+model Category {
+  id          String    @id @default(cuid())
+  name        String    @unique
+  slug        String    @unique
+  description String?
+  icon        String?
+  isActive    Boolean   @default(true)
+  order       Int       @default(0)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  products    Product[]
+
+  @@index([isActive])
+  @@index([order])
+}
+
+model Product {
+  id              String    @id @default(cuid())
+  title           String
+  slug            String    @unique
+  description     String    @db.Text
+  categoryId      String
+  category        Category  @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  userId          String
+  seller          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  price           Float
+  isNegotiable    Boolean   @default(false)
+  condition       Condition @default(LIKE_NEW)
+  school          String?
+  region          String?
+  quantity        Int       @default(1)
+  contactPreference ContactMethod @default(CALL)
+  status          ProductStatus @default(ACTIVE)
+  viewCount       Int       @default(0)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  // Relations
+  images          ProductImage[]
+  cartItems       CartItem[]
+  wishlistItems   Wishlist[]
+  orderItems      OrderItem[]
+  reviews         Review[]
+  messagePreview  Message[] @relation("messageProduct")
+
+  @@index([userId])
+  @@index([categoryId])
+  @@index([status])
+  @@index([school])
+  @@index([region])
+  @@index([price])
+  @@index([createdAt])
+  @@fulltext([title, description])
+}
+
+enum Condition {
+  BRAND_NEW
+  LIKE_NEW
+  GOOD
+  FAIR
+}
+
+enum ProductStatus {
+  ACTIVE
+  SOLD
+  INACTIVE
+  PENDING_APPROVAL
+  REJECTED
+}
+
+enum ContactMethod {
+  CALL
+  TEXT
+  WHATSAPP
+  EMAIL
+}
+
+model ProductImage {
+  id        String   @id @default(cuid())
+  productId String
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  url       String
+  order     Int      @default(0)
+  createdAt DateTime @default(now())
+
+  @@index([productId])
+}
+
+// ============================================================================
+// SHOPPING CART
+// ============================================================================
+
+model CartItem {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  productId String
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  quantity  Int      @default(1)
+  savedForLater Boolean @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, productId])
+  @@index([userId])
+  @@index([productId])
+}
+
+// ============================================================================
+// WISHLIST
+// ============================================================================
+
+model Wishlist {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  productId String
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@unique([userId, productId])
+  @@index([userId])
+  @@index([productId])
+}
+
+// ============================================================================
+// ORDERS
+// ============================================================================
+
+model Order {
+  id                String        @id @default(cuid())
+  orderNumber       String        @unique
+  buyerId           String
+  buyer             User          @relation("buyer", fields: [buyerId], references: [id], onDelete: Cascade)
+  sellerId          String
+  seller            User          @relation("seller", fields: [sellerId], references: [id], onDelete: Cascade)
+  status            OrderStatus   @default(PENDING)
+  deliveryMethod    DeliveryMethod @default(PICKUP)
+  shippingAddress   String?       @db.Text
+  shippingCity      String?
+  shippingRegion    String?
+  shippingPhone     String?
+  subtotal          Float
+  shippingCost      Float         @default(0)
+  tax               Float         @default(0)
+  total             Float
+  paymentStatus     PaymentStatus @default(PENDING)
+  paymentMethod     PaymentMethod @default(CASH_ON_DELIVERY)
+  notes             String?       @db.Text
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+  completedAt       DateTime?
+
+  // Relations
+  items             OrderItem[]
+
+  @@index([buyerId])
+  @@index([sellerId])
+  @@index([status])
+  @@index([paymentStatus])
+  @@index([createdAt])
+}
+
+enum OrderStatus {
+  PENDING
+  CONFIRMED
+  PROCESSING
+  SHIPPED
+  DELIVERED
+  COMPLETED
+  CANCELLED
+}
+
+enum DeliveryMethod {
+  PICKUP
+  HOME_DELIVERY
+}
+
+enum PaymentStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+enum PaymentMethod {
+  CASH_ON_DELIVERY
+  MOBILE_MONEY
+  CARD
+}
+
+model OrderItem {
+  id        String   @id @default(cuid())
+  orderId   String
+  order     Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  productId String
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Restrict)
+  quantity  Int
+  price     Float
+  createdAt DateTime @default(now())
+
+  @@index([orderId])
+  @@index([productId])
+}
+
+// ============================================================================
+// MESSAGING
+// ============================================================================
+
+model Conversation {
+  id            String    @id @default(cuid())
+  participants  User[]    @relation("userConversations")
+  messages      Message[]
+  lastMessage   String?   @db.Text
+  lastMessageAt DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@index([createdAt])
+}
+
+model Message {
+  id              String        @id @default(cuid())
+  conversationId  String
+  conversation    Conversation  @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  senderId        String
+  sender          User          @relation(fields: [senderId], references: [id], onDelete: Cascade)
+  content         String?       @db.Text
+  imageUrl        String?
+  productId       String?
+  product         Product?      @relation("messageProduct", fields: [productId], references: [id], onDelete: SetNull)
+  isRead          Boolean       @default(false)
+  readAt          DateTime?
+  createdAt       DateTime      @default(now())
+
+  @@index([conversationId])
+  @@index([senderId])
+  @@index([productId])
+  @@index([createdAt])
+}
+
+// ============================================================================
+// REVIEWS & RATINGS
+// ============================================================================
+
+model Review {
+  id        String   @id @default(cuid())
+  productId String
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  reviewerId String
+  reviewer  User     @relation("reviewer", fields: [reviewerId], references: [id], onDelete: Cascade)
+  sellerId  String
+  seller    User     @relation("seller", fields: [sellerId], references: [id], onDelete: Cascade)
+  rating    Int      // 1-5
+  title     String?
+  content   String?  @db.Text
+  images    ReviewImage[]
+  isVerified Boolean @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([productId])
+  @@index([reviewerId])
+  @@index([sellerId])
+  @@index([rating])
+}
+
+model ReviewImage {
+  id       String   @id @default(cuid())
+  reviewId String
+  review   Review   @relation(fields: [reviewId], references: [id], onDelete: Cascade)
+  url      String
+  order    Int      @default(0)
+
+  @@index([reviewId])
+}
+
+// ============================================================================
+// NOTIFICATIONS
+// ============================================================================
+
+model Notification {
+  id        String             @id @default(cuid())
+  userId    String
+  user      User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type      NotificationType
+  title     String
+  message   String             @db.Text
+  link      String?
+  isRead    Boolean            @default(false)
+  readAt    DateTime?
+  createdAt DateTime           @default(now())
+
+  @@index([userId])
+  @@index([isRead])
+  @@index([createdAt])
+}
+
+enum NotificationType {
+  MESSAGE
+  ORDER
+  LISTING_SOLD
+  WISHLIST_UPDATE
+  VERIFICATION_STATUS
+  ACCOUNT_ACTIVITY
+  ADMIN_ACTION
+}
+
+// ============================================================================
+// SELLER VERIFICATION
+// ============================================================================
+
+model SellerVerification {
+  id            String                   @id @default(cuid())
+  userId        String                   @unique
+  user          User                     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  status        VerificationStatus       @default(PENDING)
+  schoolName    String
+  schoolID      String?
+  idType        String // National ID, Student ID, etc.
+  idNumber      String
+  idImage       String
+  reasonForRejection String?
+  requestedAt   DateTime                 @default(now())
+  reviewedAt    DateTime?
+  reviewedBy    String? // Admin user ID
+
+  @@index([userId])
+  @@index([status])
+}
+
+enum VerificationStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+// ============================================================================
+// REPORTS
+// ============================================================================
+
+model Report {
+  id          String       @id @default(cuid())
+  reporterId  String
+  reporter    User         @relation(fields: [reporterId], references: [id], onDelete: Cascade)
+  type        ReportType
+  reason      String
+  description String?      @db.Text
+  status      ReportStatus @default(OPEN)
+  actionTaken String?      @db.Text
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  @@index([reporterId])
+  @@index([status])
+}
+
+enum ReportType {
+  INAPPROPRIATE_CONTENT
+  SCAM
+  HARASSMENT
+  DUPLICATE_LISTING
+  OFFENSIVE_LANGUAGE
+  OTHER
+}
+
+enum ReportStatus {
+  OPEN
+  UNDER_REVIEW
+  RESOLVED
+  DISMISSED
+}
+
+// ============================================================================
+// ADMIN LOGS
+// ============================================================================
+
+model AdminLog {
+  id        String   @id @default(cuid())
+  adminId   String
+  admin     User     @relation(fields: [adminId], references: [id], onDelete: Cascade)
+  action    String
+  details   String?  @db.Text
+  createdAt DateTime @default(now())
+
+  @@index([adminId])
+  @@index([createdAt])
+}
